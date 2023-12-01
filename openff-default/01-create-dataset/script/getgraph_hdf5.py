@@ -3,7 +3,13 @@ import os, sys
 import numpy as np
 import h5py
 import torch
+
+import sys
+import os
+# the next line is to use dev version
+sys.path.append(os.path.abspath('/home/pmorerio/code/dompe/espaloma/espaloma'))
 import espaloma as esp
+
 from espaloma.units import *
 import click
 from openff.toolkit.topology import Molecule

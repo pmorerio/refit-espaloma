@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Check incomplete HDF5 entries that have not been converted to graphs
-DATASET_PATH=/home/takabak/data/exploring-rna/download-qca-dataset/openff-default/Dataset/rna-diverse
+DATASET_PATH=/data/datasets/QCArchive
 python ../../script/check_status.py --hdf5 ${DATASET_PATH}/RNA-DIVERSE-OPENFF-DEFAULT.hdf5 > mylist
 x=`head -n 1 mylist | wc -l`
 if [ $x -eq 0 ]; then
@@ -27,6 +27,7 @@ do
 
     cd data/${idx}
     echo "submit job id-${idx}"
-    bsub < submit.sh
+    # bsub < submit.sh
+    ./submit.sh
     cd ${DIR}
 done < mylist
