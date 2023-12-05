@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.abspath('/home/pmorerio/code/dompe/espaloma/espaloma'))
 import espaloma as esp
 
-from espaloma.units import *
+# from espaloma.units import *
 import click
 from openff.toolkit.topology import Molecule
 from simtk import unit
@@ -37,14 +37,17 @@ def get_graph(record, key, idx):
 
     # Compute AM1-BCC ELF10 using openeye-toolkit
     try:
-        offmol.assign_partial_charges(partial_charge_method="am1bccelf10")
+        offmol.assign_partial_charges(partial_charge_method="mmff94")
+        # offmol.assign_partial_charges(partial_charge_method="am1bccelf10")
     except:
         failures = open('../../partial_charge_failures.txt', 'a')
         failures.write("{}\t{}\t{}\n".format(key, smi, idx))
         failures.close()
         msg = 'could not assign partial charge'
         raise ValueError(msg)
-    charges = offmol.partial_charges.value_in_unit(esp.units.CHARGE_UNIT)
+    # charges = offmol.partial_charges.value_in_unit(esp.units.CHARGE_UNIT)
+    charges = offmol.partial_charges.magnitude #charge units are the same openmm.unit.elementary_charge
+
     g = esp.Graph(offmol)
 
     try:
