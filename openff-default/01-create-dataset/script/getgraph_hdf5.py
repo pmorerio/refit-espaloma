@@ -45,8 +45,8 @@ def get_graph(record, key, idx):
         failures.close()
         msg = 'could not assign partial charge'
         raise ValueError(msg)
-    # charges = offmol.partial_charges.value_in_unit(esp.units.CHARGE_UNIT)
-    charges = offmol.partial_charges.magnitude #charge units are the same openmm.unit.elementary_charge
+    charges = offmol.partial_charges.to_openmm().value_in_unit(esp.units.CHARGE_UNIT)
+    # charges = offmol.partial_charges.magnitude #charge units are the same openmm.unit.elementary_charge
 
     g = esp.Graph(offmol)
 
