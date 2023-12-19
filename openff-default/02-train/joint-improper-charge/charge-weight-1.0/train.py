@@ -5,6 +5,11 @@ import random
 import click
 import glob
 import torch
+
+import sys
+import os
+# the next line is to use dev version
+sys.path.append(os.path.abspath('/home/pmorerio/code/dompe/espaloma/espaloma'))
 import espaloma as esp
 import dgl
 import logging
