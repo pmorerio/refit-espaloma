@@ -1,16 +1,18 @@
 #!/usr/bin/env python
-import os, sys
-import numpy as np
-import click
 import copy
 import glob
-import torch
+import os
+import sys
+
+import click
 import espaloma as esp
+import numpy as np
+import torch
 
 # 
 # Basic settings
 # 
-BASE_FORCEFIELD = "openff-2.0.0"
+
 MAX_ENERGY = 0.1   # hartee (62.75 kcal/mol)
 HARTEE_TO_KCALPERMOL = 627.5
 MIN_CONF = 5
@@ -18,7 +20,8 @@ MIN_CONF = 5
 
 def run(kwargs):
     dataset = kwargs['dataset']
-    entry_path = os.path.join(BASE_FORCEFIELD, dataset)
+    base_forcefield = kwargs['base_forcefield']
+    entry_path = os.path.join(base_forcefield, dataset)
     paths_to_mydata = glob.glob("{}/*".format(entry_path))
 
     n_valid_confs = 0
@@ -73,7 +76,7 @@ def run(kwargs):
                 wf.write("{:8d}: {:4d} / {:4d} conformations passed the filter ({} excluded)\n".format(entry_id, n_passed_confs, n_confs, n_confs - n_passed_confs))
 
             if n_passed_confs >= MIN_CONF:
-                g.save('{}/{}/{}'.format(BASE_FORCEFIELD + "_filtered", dataset, entry_id))
+                g.save('{}/{}/{}'.format(base_forcefield + "_filtered", dataset, entry_id))
                 n_valid_mols += 1
 
         wf.write("------------------\n")
@@ -86,6 +89,8 @@ def run(kwargs):
 
 @click.command()
 @click.option("--dataset",  required=True, type=click.Choice(['gen2', 'gen2-torsion', 'pepconf', 'pepconf-dlc', 'protein-torsion', 'rna-diverse', 'rna-trinucleotide', 'rna-nucleoside', 'spice-dipeptide', 'spice-pubchem', 'spice-des-monomers']), help="name of the dataset")
+@click.option("--base_forcefield",  required=True, type=click.Choice(['openff-2.0.0', 'mmff94']), help="base forcefield")
+
 def cli(**kwargs):
     print(kwargs)
     print(esp.__version__)

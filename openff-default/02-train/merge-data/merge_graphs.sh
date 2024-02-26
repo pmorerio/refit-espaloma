@@ -11,25 +11,6 @@
 #BSUB -eo stderr/merge_%J_%I.stderr
 #BSUB -L /bin/bash
 
+BASE_FORCEFIELD='mmff94'
 
-source ~/.bashrc
-OPENMM_CPU_THREADS=1
-export OE_LICENSE=~/.openeye/oe_license.txt   # Open eye license activation/env
-
-
-# change dir
-echo "changing directory to ${LS_SUBCWD}"
-cd $LS_SUBCWD
-
-
-# Report node in use
-echo "======================"
-hostname
-#env | sort | grep 'CUDA'
-#nvidia-smi
-echo "======================"
-
-
-# run job
-conda activate espaloma
-python ./script/merge_graphs.py
+python ./script/merge_graphs.py --base_forcefield $BASE_FORCEFIELD

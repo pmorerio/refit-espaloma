@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Check incomplete HDF5 entries that have not been converted to graphs
-DATASET_PATH=/data/datasets/QCArchive
-python ../../script/check_status.py --hdf5 ${DATASET_PATH}/RNA-DIVERSE-OPENFF-DEFAULT.hdf5 > mylist
+DATASET_PATH=../../datasets/QCArchive
+
+python ../../script/check_status.py --hdf5 ${DATASET_PATH}/SPICE-PUBCHEM-OPENFF-DEFAULT.hdf5 > mylist
 x=`head -n 1 mylist | wc -l`
 if [ $x -eq 0 ]; then
     echo "finished"

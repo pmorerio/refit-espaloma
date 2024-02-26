@@ -1,22 +1,22 @@
 #!/usr/bin/env python
-import os, sys
-import numpy as np
-import click
 import copy
 import glob
-import torch
+import os
+import sys
+
+import click
 import espaloma as esp
+import numpy as np
+import torch
 from espaloma.data.md import *
 from openff.toolkit.topology import Molecule
-from openmmforcefields.generators import SystemGenerator
 from openmm import openmm, unit
 from openmm.app import Simulation
 from openmm.unit import Quantity
-
-
+from openmmforcefields.generators import SystemGenerator
+from tqdm import tqdm
 
 # Basic settings
-BASE_FORCEFIELD = "openff-2.0.0"
 
 
 # Simulation Specs
@@ -113,6 +113,7 @@ def run(kwargs):
     path_to_dataset = kwargs['path_to_dataset']
     dataset = kwargs['dataset']
     forcefields = kwargs['forcefields']
+    base_forcefield = kwargs['base_forcefield']
 
     # convert forcefields into list
     _forcefields = []
@@ -124,7 +125,7 @@ def run(kwargs):
     forcefields= _forcefields
 
 
-    entry_path = os.path.join(path_to_dataset, dataset, "data")
+    entry_path = os.path.join(path_to_dataset, dataset)
     paths_to_mydata = glob.glob("{}/*/mydata".format(entry_path))
 
 
@@ -134,8 +135,13 @@ def run(kwargs):
 
     with open("calc_ff_{}.log".format(dataset), "w") as wf:
         wf.write(">{}: {} molecules found\n".format(dataset, n_total_mols))
-        for p in paths_to_mydata:
+        for p in tqdm(paths_to_mydata):
             try:
+                entry_id = p.split('/')[-2]  # str
+                save_path = '{}/{}/{}'.format(base_forcefield, dataset, entry_id)
+                if os.path.exists(save_path):
+                    continue
+                
                 _g = esp.Graph.load(p)   # graph generated from hdf5 file. u_ref corresponds to native QM energy.
                 g = copy.deepcopy(_g)
                 n_confs = g.nodes['n1'].data['xyz'].shape[1]
@@ -144,31 +150,33 @@ def run(kwargs):
                 """
                 subtract nonbonded from qm and calculate legacy forcefields
                 """
+                
                 # clone qm energy
                 g.nodes['g'].data['u_qm'] = g.nodes['g'].data['u_ref'].detach().clone()
                 g.nodes['n1'].data['u_qm_prime'] = g.nodes['n1'].data['u_ref_prime'].detach().clone()
 
                 
                 # subtract nonbonded interaction energy. u_ref will be overwritten.
-                g = subtract_nonbonded_force(g, forcefield=BASE_FORCEFIELD, subtract_charges=True)
+                g = subtract_nonbonded_force(g, forcefield=base_forcefield, subtract_charges=True)
 
-                # calculate baseline energy with legacy forcefields
+                # calculate baseline energy with legacy forcefields # TODO (gianscarpe): in mmff94 as well?
                 for forcefield in forcefields:
                     g = baseline_energy_force(g, forcefield)
 
                 """
                 report
                 """
-                entry_id = p.split('/')[6]  # str
+                
                 wf.write("{:8d}: {:4d} conformations found\n".format(int(entry_id), n_confs))
 
 
                 """
                 save graph
                 """
-                g.save('{}/{}/{}'.format(BASE_FORCEFIELD, dataset, entry_id))
+                g.save(save_path)
             except:
-                print(f"COULD NOT PROCESS MOLECULE {p}")
+                _g = esp.Graph.load(p)   # graph generated from hdf5 file. u_ref corresponds to native QM energy.
+                print(_g.mol.to_smiles())
 
         # summary
         wf.write("------------------\n")
@@ -181,6 +189,7 @@ def run(kwargs):
 @click.option("--path_to_dataset", required=True, help="path to the dataset")
 @click.option("--dataset",  required=True, type=click.Choice(['gen2', 'gen2-torsion', 'pepconf', 'pepconf-dlc', 'protein-torsion', 'rna-diverse', 'rna-trinucleotide', 'rna-nucleoside', 'spice-dipeptide', 'spice-pubchem', 'spice-des-monomers']), help="name of the dataset")
 @click.option("--forcefields", required=True, help="legacy forcefields in sequence [gaff-1.81, gaff-2.10, openff-1.2.0, openff-2.0.0, amber14-all.xml]", type=str)
+@click.option("--base_forcefield", required=True, help="base forcefield in [mmff94, openff-1.2.0, openff-2.0.0]", default='openff-2.0.0', type=str)
 def cli(**kwargs):
     print(kwargs)
     print(esp.__version__)

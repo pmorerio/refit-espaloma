@@ -1,11 +1,15 @@
 #!/usr/bin/env python
-import os, sys
-import glob
 import copy
+import glob
+import os
+import sys
 import warnings
-import torch
-import espaloma as esp
 
+import click
+import espaloma as esp
+import torch
+
+MAX_ENERGY = 0.1
 
 # ----
 # SUBROUTINE
@@ -110,36 +114,52 @@ def update_graph(ds):
 # ----
 # RUN
 # ----
-MAX_ENERGY = 0.1
-entries = glob.glob("./openff-2.0.0_filtered/duplicated-isomeric-smiles/*/*")
-n_entries = len(entries)
-print(f">{n_entries} entries found.\n")
+def run(kwargs):
 
-mydict = {}
-for i, entry in enumerate(entries):
-    print(f"{i}: {entry}")
-    dataset = os.path.basename(entry)
-    smile_name = entry.split('/')[-2]
-    if smile_name not in mydict.keys():
-        mydict[smile_name] = str(i)
-    if len(os.listdir(entry)) != 1:
-        name = "-".join(os.listdir(entry))
-        ## Work around to enable espaloma to save graphs. g.save will not save if file exists.
-        _output_prefix = os.path.join("./openff-2.0.0_filtered/duplicated-isomeric-smiles-merge", mydict[smile_name], dataset)
-        output_prefix = os.path.join(_output_prefix, name)
-        print("Found {} entries. Merge and save as {}.".format(len(os.listdir(entry)), output_prefix))
+    forcefield = kwargs['base_forcefield']
 
-        ds = esp.data.dataset.GraphDataset.load(entry)
-        g = update_graph(ds)
-        g = filter_graph(g)
-        n_confs = g.nodes['n1'].data['xyz'].shape[1]
-        print(f"Total number of conformation: {n_confs}\n")
-    else:
-        name = os.listdir(entry)[0]
-        _output_prefix = os.path.join("./openff-2.0.0_filtered/duplicated-isomeric-smiles-merge", mydict[smile_name], dataset)
-        output_prefix = os.path.join(_output_prefix, name)
-        print("Found {} entry. Resave as {}.\n".format(len(os.listdir(entry)), output_prefix))
-    
-    ## Save
-    os.makedirs(_output_prefix, exist_ok=True)
-    g.save(output_prefix)
+
+    entries = glob.glob(f"./{forcefield}_filtered/duplicated-isomeric-smiles/*/*")
+    n_entries = len(entries)
+    print(f">{n_entries} entries found.\n")
+
+    mydict = {}
+    for i, entry in enumerate(entries):
+        print(f"{i}: {entry}")
+        dataset = os.path.basename(entry)
+        smile_name = entry.split('/')[-2]
+        if smile_name not in mydict.keys():
+            mydict[smile_name] = str(i)
+        if len(os.listdir(entry)) != 1:
+            name = "-".join(os.listdir(entry))
+            ## Work around to enable espaloma to save graphs. g.save will not save if file exists.
+            _output_prefix = os.path.join(f"./{forcefield}_filtered/duplicated-isomeric-smiles-merge", mydict[smile_name], dataset)
+            output_prefix = os.path.join(_output_prefix, name)
+            print("Found {} entries. Merge and save as {}.".format(len(os.listdir(entry)), output_prefix))
+
+            ds = esp.data.dataset.GraphDataset.load(entry)
+            g = update_graph(ds)
+            g = filter_graph(g)
+            n_confs = g.nodes['n1'].data['xyz'].shape[1]
+            print(f"Total number of conformation: {n_confs}\n")
+        else:
+            name = os.listdir(entry)[0]
+            _output_prefix = os.path.join(f"./{forcefield}_filtered/duplicated-isomeric-smiles-merge", mydict[smile_name], dataset)
+            output_prefix = os.path.join(_output_prefix, name)
+            print("Found {} entry. Resave as {}.\n".format(len(os.listdir(entry)), output_prefix))
+
+        ## Save
+        os.makedirs(_output_prefix, exist_ok=True)
+        g.save(output_prefix)
+
+
+@click.command()
+@click.option("--base_forcefield",  required=True, type=click.Choice(['openff-2.0.0', 'mmff94']), help="base forcefield")
+
+def cli(**kwargs):
+    print(kwargs)
+    print(esp.__version__)
+    run(kwargs)
+
+if __name__ == '__main__':
+    cli()

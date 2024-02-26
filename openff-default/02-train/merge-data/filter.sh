@@ -12,73 +12,15 @@
 #BSUB -L /bin/bash
 
 
-source ~/.bashrc
 OPENMM_CPU_THREADS=1
-export OE_LICENSE=~/.openeye/oe_license.txt   # Open eye license activation/env
 
+base_forcefield='openff-2.0.0'
 
-# change dir
-echo "changing directory to ${LS_SUBCWD}"
-cd $LS_SUBCWD
+datasets=$(ls ${base_forcefield})
 
-
-# Report node in use
-echo "======================"
-hostname
-#env | sort | grep 'CUDA'
-#nvidia-smi
-echo "======================"
-
-
-# run job
-conda activate espaloma
-
-# rna
-dataset="rna-diverse"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# rna-trinucleotide
-dataset="rna-trinucleotide"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# rna-nucleoside
-dataset="rna-nucleoside"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# spice-pubchem
-dataset="spice-pubchem"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# spice-dipeptide
-dataset="spice-dipeptide"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# spice-des-monomers
-dataset="spice-des-monomers"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# gen2
-dataset="gen2"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# pepconf-dlc
-dataset="pepconf-dlc"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# gen2-torsion
-dataset="gen2-torsion"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
-
-# protein-torsion
-dataset="protein-torsion"
-mkdir -p openff-2.0.0_filtered/${dataset}
-python ./script/filter.py --dataset ${dataset}
+for dataset in $datasets
+do
+    echo $dataset
+    mkdir -p ${base_forcefield}_filtered/${dataset}
+    python ./script/filter.py --dataset ${dataset} --base_forcefield $base_forcefield
+done

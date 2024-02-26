@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import random
+import re
 import subprocess
 import sys
 
@@ -21,6 +22,34 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 HARTEE_TO_KCALPERMOL = 627.5
 RANDOM_SEED = 2666
 TRAIN_RATIO, VAL_RATIO, TEST_RATIO = 0.8, 0.1, 0.1
+
+
+def _compute_lin(g):
+    """
+    Remove unnecessary data from graph.
+    """
+
+    LIGEN_N_COLUMNS = 12
+    LIGEN_LIN_MAPPING = torch.tensor([0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    mol = g.mol.to_smiles()
+    result = subprocess.run('ligen-type', input=mol, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    # parsing ligen output for lin
+    idxs = [int(re.findall("\d+", a[a.find("#"):])[0]) for a in result.stdout.split("\n") if len(a.split()) >= LIGEN_N_COLUMNS]
+
+    if idxs:
+        
+        mol_lins_mapping = [LIGEN_LIN_MAPPING[idx] for idx in idxs]
+        lins = [mol_lins_mapping[i1] for _, i1, _ in g.nodes['n3'].data['idxs']]
+        g.nodes['n3'].data['lin'] = torch.tensor(lins)[:, None].bool()
+        return g
+    else:
+        raise Exception(f"Cannot handle molecule {mol}")
+    
 
 
 #-------------------------
@@ -41,7 +70,7 @@ def _load_datasets(datasets, input_prefix):
             ds = esp.data.dataset.GraphDataset.load(path).shuffle(RANDOM_SEED)
             _ds_tr, _ds_vl, _ds_te = ds.split([TRAIN_RATIO, VAL_RATIO, TEST_RATIO])
 
-        # Merge datasets
+        # Merged datasets
         if i == 0:
             ds_tr = _ds_tr
         else:
@@ -83,7 +112,7 @@ def _fn(g):
     Remove unnecessary data from graph.
     """
     g.nodes['g'].data.pop('u_qm')
-    g.nodes['g'].data.pop('sum_q')
+    g.nodes['g'].data.pop('sum_q') # added (gianscarpe)
     g.nodes['g'].data.pop('u_gaff-1.81')
     g.nodes['g'].data.pop('u_gaff-2.11')
     g.nodes['g'].data.pop('u_openff-1.2.0')
@@ -102,8 +131,28 @@ def _fn(g):
     g.nodes['g'].data.pop('u_ref_relative')          
     g.nodes['g'].data['u_ref'] = g.nodes['g'].data['u_ref'].double()
     g.nodes['n1'].data['q_ref'] = g.nodes['n1'].data['q_ref'].float()
+
     return g
 
+
+# def _add_stretch_bend(g):
+#     ## Add new nodes of type n23_stretch (for stretch-bend interactions)
+#     hg = g.heterograph
+
+#     ijk_idxs = g.nodes['n3'].data['idxs']
+#     hg = dgl.add_nodes(hg, ijk_idxs.shape[0], ntype="n23_stretch")
+
+#     # edge from stretch node to n1 node
+#     outgoing_etype = ("n4_improper", f"n4_improper_has_{i}_n1", "n1")
+#     hg = dgl.add_edges(hg, 0, ijk_idxs, etype=outgoing_etype)
+
+#     # edge from n1 to improper
+#     incoming_etype = ("n1", f"n1_as_{i}_in_n4_improper", "n4_improper")
+#     hg = dgl.add_edges(hg, ijk_idxs, 0, etype=incoming_etype)
+
+#     g.heterograph = hg
+
+#     return g  # hg
 
 
 def _augment_conformations(ds_tr, n_max_confs):
@@ -233,30 +282,34 @@ def run(kwargs):
     datasets = _datasets
 
     # Load datasets
-    logging.debug(f"# LOAD DUPLICATED MOLECULES")
     ds_tr = _load_datasets(datasets, input_prefix)
     logging.debug(f"# Training size is now: {len(ds_tr)}")
-    
+
+
     # Load duplicate datasets
+    logging.debug(f"# LOAD DUPLICATED MOLECULES")
     ds_tr = _load_duplicate_datasets(ds_tr, input_prefix)
     logging.debug(f"# Training size is now: {len(ds_tr)}")
 
-    
+    logging.debug("# COMPUTING LIN ANGLES")
+    ds_tr.apply(_compute_lin, in_place=True)
+    logging.debug(f"# Training size is now: {len(ds_tr)}")
+
     # Remove unnecessary data from graph
     from espaloma.graphs.utils.regenerate_impropers import regenerate_impropers
+    
     ds_tr.apply(_fn, in_place=True)
+    
     ds_tr.apply(regenerate_impropers, in_place=True)
 
+    from espaloma.graphs.utils.generate_oops import generate_oops
+    ds_tr.apply(generate_oops, in_place=True)
+    
     # Handle heterographs
     logging.debug(f"# AUGMENT CONFORMATIONS TO HANDLE HETEROGRAPHS")
     ds_tr_augment = _augment_conformations(ds_tr, n_max_confs)
     logging.debug(f"# Training size is now: {len(ds_tr_augment)}")
     del ds_tr
-
-
-    # Compute linh through ligen
-    
-
 
     #
     # Define espaloma model
@@ -272,16 +325,20 @@ def run(kwargs):
     # 2: bond linear combination, enforce positive
     # 3: angle linear combination, enforce positive
     # 4: torsion barrier heights (can be positive or negative)
+
     readout = esp.nn.readout.janossy.JanossyPooling(
         in_features=units, config=janossy_config,
         out_features={
                 1: {'s': 1, 'e': 1},
-                2: {'log_coefficients': 2},
-                3: {'log_coefficients': 2},
-                4: {'k': 6},
+                2: {'log_coefficients': 2,'eq':1, 'k': 1}, # 1?
+                3: {'log_coefficients': 2, 'k': 1, 'eq':1,  'kstretch': 2},
+                4: {'k': 3},
         },
     )
+
     readout_improper = esp.nn.readout.janossy.JanossyPoolingWithSmirnoffImproper(in_features=units, config=janossy_config, out_features={"k": 2})
+
+    readout_oop = esp.nn.readout.janossy.JanossyPoolingOOP(in_features=units, config=janossy_config, out_features={"k": 1})
 
     class ExpCoeff(torch.nn.Module):
         def forward(self, g):
@@ -301,13 +358,14 @@ def run(kwargs):
                 g.nodes['n1'].data['q_ref'],
             )
         def force_loss(self, g):
+            
             du_dx_hat = torch.autograd.grad(
                 g.nodes['g'].data['u'].sum(),
                 g.nodes['n1'].data['xyz'],
                 create_graph=True,
                 retain_graph=True,
                 allow_unused=True,
-            )[0]
+            )[0].float()
             du_dx = g.nodes["n1"].data["u_ref_prime"].float()
 
             return torch.nn.MSELoss()(
@@ -315,9 +373,9 @@ def run(kwargs):
                 du_dx_hat
             )
         def forward(self, g):
-            #logging.debug(f"Loss_charge:      {self.charge_loss(g)}")
-            #logging.debug(f"Loss_energy:      {self.energy_loss(g)}")
-            #logging.debug(f"Loss_force:       {self.force_loss(g)}")
+            # logging.debug(f"Loss_charge:      {self.charge_loss(g)}")
+            # logging.debug(f"Loss_energy:      {self.energy_loss(g)}")
+            # logging.debug(f"Loss_force:       {self.force_loss(g)}")
             loss = self.charge_loss(g) + self.energy_loss(g) + self.force_loss(g) * force_weight
             if g.number_of_nodes('n4_improper') > 0:
                 #logging.debug(f"Loss_n4_improper: {g.nodes['n4_improper'].data['k'].pow(2).mean()}")
@@ -325,18 +383,23 @@ def run(kwargs):
             if g.number_of_nodes('n4') > 0:
                 #logging.debug(f"Loss_n4:          {g.nodes['n4'].data['k'].pow(2).mean()}")
                 loss = loss + g.nodes['n4'].data['k'].pow(2).mean()
+            
             return loss
-        
+
+    energy_graph = esp.mm.energy.EnergyInGraphMMFF(terms=["n2", "n3", "n4", "n4_improper", "n4_oop"])
+    
+    device = 'cuda'
     net = torch.nn.Sequential(
-            representation,
-            readout,
-            readout_improper,
-            ExpCoeff(),
-            esp.nn.readout.charge_equilibrium.ChargeEquilibrium(),
-            esp.mm.geometry.GeometryInGraph(),
-            esp.mm.energy.EnergyInGraph(terms=["n2", "n3", "n4", "n4_improper"]),
-            GetLoss(),
-    ).cuda()
+        representation,
+        readout,
+        readout_improper,
+        readout_oop,
+        ExpCoeff(),
+        esp.nn.readout.charge_equilibrium.ChargeEquilibrium(),
+        esp.mm.geometry.GeometryInGraph(),
+        energy_graph,
+        GetLoss(),
+    ).float().to(device)
 
     # Check if checkpoint file exists
     checkpoints = glob.glob("{}/*.th".format(output_prefix))
@@ -357,8 +420,9 @@ def run(kwargs):
     with torch.autograd.set_detect_anomaly(True):
         for idx in range(step, step+epochs):
             for g in ds_tr_loader:
+                
                 optimizer.zero_grad()
-                g = g.to("cuda:0")
+                g = g.to(device)
                 g.nodes["n1"].data["xyz"].requires_grad = True 
                 loss = net(g)
                 loss.backward()
@@ -385,6 +449,7 @@ def run(kwargs):
 @click.option("-o",   "--output_prefix",   default="output", help="output prefix to save checkpoint network models", type=str)
 @click.option("-n",   "--n_max_confs",     default="50", help="number of conformations to reshape the graph", type=int)
 @click.option("-w",   "--force_weight",    default=1.0, type=float)
+@click.option("-f",   "--field",    default='openff', type=str)
 def cli(**kwargs):
     logging.debug(kwargs)
     logging.debug(esp.__version__)

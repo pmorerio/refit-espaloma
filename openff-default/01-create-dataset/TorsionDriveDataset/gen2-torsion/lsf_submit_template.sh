@@ -11,26 +11,30 @@
 #BSUB -eo out_%J_%I.stderr
 #BSUB -L /bin/bash
 
-source ~/.bashrc
-OPENMM_CPU_THREADS=1
-export OE_LICENSE=~/.openeye/oe_license.txt   # Open eye license activation/env
+# source ~/.bashrc
+# OPENMM_CPU_THREADS=1
+# export OE_LICENSE=~/.openeye/oe_license.txt   # Open eye license activation/env
 
 
-# chnage dir
-echo "changing directory to ${LS_SUBCWD}"
-cd $LS_SUBCWD
+# # chnage dir
+# echo "changing directory to ${LS_SUBCWD}"
+# cd $LS_SUBCWD
 
 
-# Report node in use
-echo "======================"
-hostname
-#env | sort | grep 'CUDA'
-#nvidia-smi
-echo "======================"
+# # Report node in use
+# echo "======================"
+# hostname
+# #env | sort | grep 'CUDA'
+# #nvidia-smi
+# echo "======================"
 
 
-# run job
-conda activate espaloma
-SCRIPT_PATH=/home/takabak/data/exploring-rna/refit-espaloma/openff-default/01-create-dataset/script
-DATASET_PATH=/home/takabak/data/exploring-rna/download-qca-dataset/openff-default/TorsionDriveDataset/gen2
+# # run job
+# conda activate espaloma
+# SCRIPT_PATH=/home/takabak/data/exploring-rna/refit-espaloma/openff-default/01-create-dataset/script
+# DATASET_PATH=/home/takabak/data/exploring-rna/download-qca-dataset/openff-default/TorsionDriveDataset/gen2
+
+SCRIPT_PATH=/home/gianlucascarpellini/dev/refit-espaloma/openff-default/01-create-dataset/script
+DATASET_PATH=/home/gianlucascarpellini/dev/refit-espaloma/openff-default/01-create-dataset/datasets/QCArchive
+
 python ${SCRIPT_PATH}/getgraph_hdf5.py --hdf5 ${DATASET_PATH}/GEN2-TORSIONDRIVE-OPENFF-DEFAULT.hdf5 --output_prefix "mydata" --keyname "@@@KEYNAME@@@" --index @@@INDEX@@@

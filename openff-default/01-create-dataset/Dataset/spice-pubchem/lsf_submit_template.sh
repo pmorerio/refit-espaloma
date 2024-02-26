@@ -32,6 +32,7 @@ source ~/.bashrc
 # run job
 # mamba init
 # mamba activate espaloma-dev
-SCRIPT_PATH=/home/pmorerio/code/dompe/espaloma/refit-espaloma/openff-default/01-create-dataset/script
-DATASET_PATH=/data/datasets/QCArchive
+SCRIPT_PATH=/home/gianlucascarpellini/dev/refit-espaloma/openff-default/01-create-dataset/script
+DATASET_PATH=/home/gianlucascarpellini/dev/refit-espaloma/openff-default/01-create-dataset/datasets/QCArchive
+
 python ${SCRIPT_PATH}/getgraph_hdf5.py --hdf5 ${DATASET_PATH}/SPICE-PUBCHEM-OPENFF-DEFAULT.hdf5 --output_prefix "mydata" --keyname "@@@KEYNAME@@@" --index @@@INDEX@@@

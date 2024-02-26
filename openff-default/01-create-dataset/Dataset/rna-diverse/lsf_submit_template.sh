@@ -11,7 +11,6 @@
 #BSUB -eo out_%J_%I.stderr
 #BSUB -L /bin/bash
 
-source ~/.bashrc
 # OPENMM_CPU_THREADS=1
 # export OE_LICENSE=~/.openeye/oe_license.txt   # Open eye license activation/env
 
@@ -32,6 +31,6 @@ source ~/.bashrc
 # run job
 # mamba init
 # mamba activate espaloma-dev
-SCRIPT_PATH=/home/pmorerio/code/dompe/espaloma/refit-espaloma/openff-default/01-create-dataset/script
-DATASET_PATH=/data/datasets/QCArchive
-python ${SCRIPT_PATH}/getgraph_hdf5.py --hdf5 ${DATASET_PATH}/RNA-DIVERSE-OPENFF-DEFAULT.hdf5 --output_prefix "mydata" --keyname "@@@KEYNAME@@@" --index @@@INDEX@@@
+SCRIPT_PATH=/home/gianlucascarpellini/dev/refit-espaloma/openff-default/01-create-dataset/script
+DATASET_PATH=/home/gianlucascarpellini/dev/refit-espaloma/openff-default/01-create-dataset/datasets/QCArchive
+python ${SCRIPT_PATH}/getgraph_hdf5.py --hdf5 ${DATASET_PATH}/RNA-DIVERSE-OPENFF-DEFAULT.hdf5 --output_prefix "." --keyname "@@@KEYNAME@@@" --index @@@INDEX@@@

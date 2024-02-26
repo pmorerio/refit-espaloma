@@ -1,19 +1,17 @@
 #!/usr/bin/env python
-import os, sys
-import numpy as np
-import click
-import shutil
 import glob
-import torch
+import os
+import shutil
+import sys
+
+import click
 import espaloma as esp
+import numpy as np
 import pandas as pd
+import torch
 
 
-BASE_PATH="openff-2.0.0_filtered"
-datasets = ['gen2', 'gen2-torsion', 'pepconf-dlc', 'protein-torsion', 'spice-dipeptide', 'spice-pubchem', 'spice-des-monomers']
-
-
-def _duplicate_smiles(datasets):
+def _duplicate_smiles(base_path, datasets):
     """
     Get unique isomeric smiles (unique molecules) and return duplicated isomeric smiles.
 
@@ -27,13 +25,17 @@ def _duplicate_smiles(datasets):
         if dataset.startswith('rna'):
             pass
         else:
-            ds = esp.data.dataset.GraphDataset.load(os.path.join(BASE_PATH, dataset))
+            data_path = os.path.join(base_path, dataset)
+            if not os.path.exists(data_path):
+                continue
+            ds = esp.data.dataset.GraphDataset.load(data_path)
+
             for g in ds:
                 nonisomeric_smi = g.mol.to_smiles(isomeric=False, explicit_hydrogens=False)
                 isomeric_smi = g.mol.to_smiles(isomeric=True, explicit_hydrogens=False)
                 n_confs = g.nodes['n1'].data['xyz'].shape[1]
 
-                df = df.append(
+                df = df._append(
                     {"DATASET": dataset,
                      "N_CONFS": n_confs, 
                      "ISOMERIC_SMILES": isomeric_smi,
@@ -72,15 +74,22 @@ def _duplicate_smiles(datasets):
     return list(duplicate["ISOMERIC_SMILES"])
 
 
-def run():
+def run(kwargs):
     ## Get duplicated isomeric smiles
-    duplicate_smiles = _duplicate_smiles(datasets)
-    #print(duplicate_smiles)
+    base_forcefield = kwargs['base_forcefield']
+    base_path=f"{base_forcefield}_filtered"
+    
+    datasets = os.listdir(base_path)
+    duplicate_smiles = _duplicate_smiles(base_path, datasets)
+    
+    print(duplicate_smiles)
 
     count = 0
     mydict = {}
     for dataset in datasets:
-        entry_path = os.path.join(BASE_PATH, dataset)
+        entry_path = os.path.join(base_path, dataset)
+        if not os.path.exists(entry_path):
+            continue
         paths_to_mydata = glob.glob("{}/*".format(entry_path))
         #print(paths_to_mydata)
 
@@ -91,16 +100,24 @@ def run():
             if s in duplicate_smiles:
                 ## Replace stereochemistry marker to avoid path separation and other special characters
                 _s = s.replace("/", "_").replace("[", "__").replace("]", "__").replace("@", "AT")  
-                os.makedirs(os.path.join(BASE_PATH, "duplicated-isomeric-smiles", _s, dataset), exist_ok=True)
+                os.makedirs(os.path.join(base_path, "duplicated-isomeric-smiles", _s, dataset), exist_ok=True)
 
                 print(f"Duplicated isomeric smiles found: {p} ({s})")
                 input_prefix = p
                 idx = os.path.basename(p)
-                output_prefix = os.path.join(BASE_PATH, "duplicated-isomeric-smiles", _s, dataset, idx)
+                output_prefix = os.path.join(base_path, "duplicated-isomeric-smiles", _s, dataset, idx)
                 print(f"moving {input_prefix} to {output_prefix}")
                 shutil.move(input_prefix, output_prefix)
                 #shutil.copytree(input_prefix, output_prefix)
 
 
+@click.command()
+@click.option("--base_forcefield",  required=True, type=click.Choice(['openff-2.0.0', 'mmff94']), help="base forcefield")
+
+def cli(**kwargs):
+    print(kwargs)
+    print(esp.__version__)
+    run(kwargs)
+
 if __name__ == '__main__':
-    run()
+    cli()

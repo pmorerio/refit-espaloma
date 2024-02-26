@@ -12,24 +12,7 @@
 #BSUB -L /bin/bash
 
 
-source ~/.bashrc
-OPENMM_CPU_THREADS=1
-export OE_LICENSE=~/.openeye/oe_license.txt   # Open eye license activation/env
-
-
-# change dir
-echo "changing directory to ${LS_SUBCWD}"
-cd $LS_SUBCWD
-
-
-# Report node in use
-echo "======================"
-hostname
-#env | sort | grep 'CUDA'
-#nvidia-smi
-echo "======================"
-
+BASE_FORCEFIELD='mmff94'
 
 # run job
-conda activate espaloma
-python ./script/seperate_duplicated_isomeric_smiles.py
+python ./script/seperate_duplicated_isomeric_smiles.py --base_forcefield $BASE_FORCEFIELD
