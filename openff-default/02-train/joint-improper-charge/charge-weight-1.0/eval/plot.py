@@ -1,13 +1,16 @@
 #!/usr/bin/env python
-import os, sys
 import glob
-import shutil
+import os
 import pickle
-import numpy as np
-import seaborn as sns
-import pandas as pd
+import shutil
+import sys
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
+import pandas as pd
+import seaborn as sns
+
 #from matplotlib.ticker import MultipleLocator, FormatStrFormatter, AutoMinorLocator
 
 
@@ -28,6 +31,7 @@ params = {'legend.fontsize': 40,
 plt.rcParams.update(params)
 
 import matplotlib.colors as mcolors
+
 mycolors = mcolors.TABLEAU_COLORS
 
 
@@ -143,8 +147,10 @@ def run():
     #files.sort()
     myresults = {}
     for file in files:
+        if "val" not in file:
+            continue
         epoch = file.split('/')[-1].split('.')[0]
-        epoch = int(epoch)
+        epoch = int(epoch.split("_")[0])
         with open(file, 'rb') as handle:
             d = pickle.load(handle)
         myresults[epoch] = d

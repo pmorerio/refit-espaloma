@@ -1,21 +1,19 @@
 #!/usr/bin/env python
-import os, sys
-import numpy as np
+import os
+import sys
+
 import h5py
+import numpy as np
 import torch
 
-import sys
-import os
 # the next line is to use dev version
 sys.path.append(os.path.abspath('/home/pmorerio/code/dompe/espaloma/espaloma'))
-import espaloma as esp
-
 # from espaloma.units import *
 import click
+import espaloma as esp
 from openff.toolkit.topology import Molecule
 from simtk import unit
 from simtk.unit import Quantity
-
 
 
 def get_graph(record, key, idx):
@@ -116,7 +114,7 @@ def load_from_hdf5(kwargs):
     key = kwargs["keyname"]
     output_prefix = kwargs["output_prefix"]
     idx = kwargs["index"]
-
+    
     hdf = h5py.File(filename)
     try:
         record = hdf[key]

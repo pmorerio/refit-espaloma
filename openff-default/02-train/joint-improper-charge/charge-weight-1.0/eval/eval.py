@@ -1,13 +1,15 @@
 #!/usr/bin/env python
-import os, sys, math
-import numpy as np
-import random
-import click
 import glob
-import torch
-import espaloma as esp
-import dgl
+import math
+import os
+import random
+import sys
 
+import click
+import dgl
+import espaloma as esp
+import numpy as np
+import torch
 
 # Settings
 HARTEE_TO_KCALPERMOL = 627.509
@@ -25,6 +27,7 @@ def run(kwargs):
     input_prefix = kwargs['input_prefix']
     checkpoint_path = kwargs['checkpoint_path']
     epoch = kwargs['epoch']
+    validation=True
 
     # Convert config and janossy_config into list
     _config = []
@@ -92,7 +95,6 @@ def run(kwargs):
             ds_te += _ds_te
 
     print(f"The final validate and test data size is {len(ds_vl)} and {len(ds_te)}.")
-    del _ds_vl, _ds_te
 
     #
     # Remove unnecessary data from graph
@@ -119,7 +121,7 @@ def run(kwargs):
     ds_te.apply(fn, in_place=True)
     ds_vl.apply(regenerate_impropers, in_place=True)
     ds_te.apply(regenerate_impropers, in_place=True)
-
+    
     #
     # Espaloma model
     #
@@ -169,34 +171,47 @@ def run(kwargs):
     #
     # Calculate rmse loss
     #
+    print("Loading checkpoint")
     state_dict = torch.load(os.path.join(checkpoint_path, "net{}.th".format(epoch)), map_location=torch.device('cpu'))
+    
     net.load_state_dict(state_dict)
     net.eval()
 
     e_vl, e_te = [], []
     f_vl, f_te = [], []
-
+    myresults = {}
     # Validation
-    for g in ds_vl:
-        # apply network and get energy loss
-        g.nodes["n1"].data["xyz"].requires_grad = True
-        e_loss = net(g.heterograph)  # energy
-        e_vl.append(HARTEE_TO_KCALPERMOL * e_loss.pow(0.5).item())
-        
-        # https://github.com/pytorch/pytorch/issues/73862
-        # https://medium.com/@monadsblog/pytorch-backward-function-e5e2b7e60140
-        du_dx_hat = torch.autograd.grad(
-            g.nodes['g'].data['u'].sum(),
-            g.nodes['n1'].data['xyz'],
-            create_graph=True,
-            retain_graph=True,
-            allow_unused=True,
-        )[0]
-        du_dx = g.nodes["n1"].data["u_ref_prime"]
-        f_loss = torch.nn.MSELoss()(du_dx, du_dx_hat)
-        f_vl.append((HARTEE_TO_KCALPERMOL/BOHR_TO_ANGSTROMS) * f_loss.pow(0.5).item())
+    if validation:
+        print("validation")
+        for g in ds_vl:
+            # apply network and get energy loss
+            g.nodes["n1"].data["xyz"].requires_grad = True
+            e_loss = net(g.heterograph)  # energy
+            e_vl.append(HARTEE_TO_KCALPERMOL * e_loss.pow(0.5).item())
+
+            # https://github.com/pytorch/pytorch/issues/73862
+            # https://medium.com/@monadsblog/pytorch-backward-function-e5e2b7e60140
+            du_dx_hat = torch.autograd.grad(
+                g.nodes['g'].data['u'].sum(),
+                g.nodes['n1'].data['xyz'],
+                create_graph=True,
+                retain_graph=True,
+                allow_unused=True,
+            )[0]
+            du_dx = g.nodes["n1"].data["u_ref_prime"]
+            f_loss = torch.nn.MSELoss()(du_dx, du_dx_hat)
+            f_vl.append((HARTEE_TO_KCALPERMOL/BOHR_TO_ANGSTROMS) * f_loss.pow(0.5).item())
+        e_vl = np.array(e_vl).mean()
+        f_vl = np.array(f_vl).mean()
+        myresults['e_vl'] = e_vl
+        myresults["f_vl"] = f_vl
+        import pickle
+        with open('./pkl/{}_val.pickle'.format(epoch), 'wb') as handle:
+            pickle.dump(myresults, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Test
+    print("testing")
+    
     for g in ds_te:
         # apply network and get energy loss
         g.nodes["n1"].data["xyz"].requires_grad = True
@@ -217,12 +232,13 @@ def run(kwargs):
         f_te.append((HARTEE_TO_KCALPERMOL/BOHR_TO_ANGSTROMS) * f_loss.pow(0.5).item())
 
     # Energy and Force
-    e_vl = np.array(e_vl).mean()
-    e_te = np.array(e_te).mean()
-    f_vl = np.array(f_vl).mean()
-    f_te = np.array(f_te).mean()
-    myresults = { "e_vl": e_vl, "e_te": e_te, "f_vl": f_vl, "f_te": f_te }
 
+    e_te = np.array(e_te).mean()
+    
+    f_te = np.array(f_te).mean()
+    myresults["e_te"] = e_te
+    myresults["f_te"] = f_te
+    print(myresults)
     # Save
     import pickle
     with open('./pkl/{}.pickle'.format(epoch), 'wb') as handle:
@@ -242,7 +258,7 @@ def run(kwargs):
 @click.option("-e",   "--epoch",           required=True, help="epoch number", type=int)
 def cli(**kwargs):
     epoch = kwargs['epoch']
-    if os.path.exists(f"./pkl/{epoch}.pickle"):
+    if os.path.exists(f"./pkl/{epoch}.pickle") and os.path.exists(f"./pkl/{epoch}_val.pickle"):
         exit()
     else:
         print(kwargs)

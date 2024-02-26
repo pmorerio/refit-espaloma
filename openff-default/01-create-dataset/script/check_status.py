@@ -1,9 +1,11 @@
 #!/usr/bin/env python
-import os, sys
-import numpy as np
-import h5py
-import click
+import os
 import shutil
+import sys
+
+import click
+import h5py
+import numpy as np
 
 
 def check_files(f, i, key, keylist):
@@ -36,10 +38,10 @@ def load_from_hdf5(kwargs):
         record = hdf[key]
         try:
             if record["rna_type"][0].decode('UTF-8') == "trinucleotide":
-                f = os.path.join("data", str(i), "mydata")
+                f = os.path.join("data", str(i))
                 check_files(f, i, key, keylist)
         except:
-            f = os.path.join("data", str(i), "mydata")
+            f = os.path.join("data", str(i))
             check_files(f, i, key, keylist)
 
 
