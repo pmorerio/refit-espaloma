@@ -21,6 +21,7 @@ MIN_CONF = 5
 def run(kwargs):
     dataset = kwargs['dataset']
     base_forcefield = kwargs['base_forcefield']
+    
     entry_path = os.path.join(base_forcefield, dataset)
     paths_to_mydata = glob.glob("{}/*".format(entry_path))
 
@@ -34,6 +35,7 @@ def run(kwargs):
         for p in paths_to_mydata:
             _g = esp.Graph.load(p)
             g = copy.deepcopy(_g)
+
             n_confs = g.nodes['n1'].data['xyz'].shape[1]
             
             # Filter high energy conformers and qm/mm inconsistant molecules
@@ -67,7 +69,7 @@ def run(kwargs):
             n_total_confs += n_confs
             entry_id = int(p.split('/')[-1])
             n_passed_confs = np.array(index, dtype=int).sum()
-
+            
             if n_passed_confs == n_confs:
                 wf.write("{:8d}: {:4d} / {:4d} conformations passed the filter\n".format(entry_id, n_passed_confs, n_confs))
             elif n_passed_confs < MIN_CONF:

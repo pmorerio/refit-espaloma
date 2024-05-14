@@ -14,6 +14,8 @@ import espaloma as esp
 import numpy as np
 import torch
 
+import wandb
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
@@ -24,7 +26,38 @@ RANDOM_SEED = 2666
 TRAIN_RATIO, VAL_RATIO, TEST_RATIO = 0.8, 0.1, 0.1
 
 
-def _compute_lin(g):
+def _compute_lin_rdkit(g):
+    """
+    Remove unnecessary data from graph.
+    """
+
+
+    LIGEN_LIN_MAPPING = torch.tensor([0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+                                      0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                      0, 0, 0])
+
+    # make sure mol is in openff.toolkit format `
+    mol = g.mol
+
+    import rdkit.Chem.rdForceFieldHelpers as ff
+    from rdkit.Chem import AllChem
+    
+    mol = mol.to_rdkit()
+    mmff = ff.MMFFGetMoleculeProperties(mol)
+
+    idxs = [mmff.GetMMFFAtomType(i) for i in range(mol.GetNumAtoms())]
+
+    if idxs:
+        mol_lins_mapping = [LIGEN_LIN_MAPPING[idx-1] for idx in idxs]
+        lins = [mol_lins_mapping[i1] for _, i1, _ in g.nodes['n3'].data['idxs']]
+        g.nodes['n3'].data['lin'] = torch.tensor(lins)[:, None].bool()
+        return g
+    else:
+        raise Exception(f"Cannot handle molecule {mol}")# put types into graph object
+
+
+def _compute_lin_ligen(g):
     """
     Remove unnecessary data from graph.
     """
@@ -259,7 +292,8 @@ def run(kwargs):
     datasets = kwargs['datasets']
     n_max_confs = kwargs['n_max_confs']
     force_weight = kwargs['force_weight']
-
+    mixture = kwargs['mixture']
+    load = kwargs['load']
     # Convert config and janossy_config into list
     _config = []
     for _ in config.split():
@@ -292,19 +326,20 @@ def run(kwargs):
     logging.debug(f"# Training size is now: {len(ds_tr)}")
 
     logging.debug("# COMPUTING LIN ANGLES")
-    ds_tr.apply(_compute_lin, in_place=True)
+    ds_tr.apply(_compute_lin_rdkit, in_place=True)
     logging.debug(f"# Training size is now: {len(ds_tr)}")
 
     # Remove unnecessary data from graph
-    from espaloma.graphs.utils.regenerate_impropers import regenerate_impropers
-    
-    ds_tr.apply(_fn, in_place=True)
-    
-    ds_tr.apply(regenerate_impropers, in_place=True)
-
     from espaloma.graphs.utils.generate_oops import generate_oops
+    from espaloma.graphs.utils.regenerate_impropers import regenerate_impropers
+
+    ds_tr.apply(_fn, in_place=True)
+    ds_tr.apply(regenerate_impropers, in_place=True)
     ds_tr.apply(generate_oops, in_place=True)
     
+
+    
+
     # Handle heterographs
     logging.debug(f"# AUGMENT CONFORMATIONS TO HANDLE HETEROGRAPHS")
     ds_tr_augment = _augment_conformations(ds_tr, n_max_confs)
@@ -329,10 +364,10 @@ def run(kwargs):
     readout = esp.nn.readout.janossy.JanossyPooling(
         in_features=units, config=janossy_config,
         out_features={
-                1: {'s': 1, 'e': 1},
-                2: {'log_coefficients': 2,'eq':1, 'k': 1}, # 1?
-                3: {'log_coefficients': 2, 'k': 1, 'eq':1,  'kstretch': 2},
-                4: {'k': 3},
+            1: {'s': 1, 'e': 1},
+            2:  {'eq':1, 'k': 1}, # {'log_coefficients': 2} if mixture else
+            3: {'log_coefficients': 2,   'kstretch': 2} if mixture else {'eq':1, 'k': 1,  'kstretch': 2},
+            4: {'k': 3},
         },
     )
 
@@ -342,8 +377,10 @@ def run(kwargs):
 
     class ExpCoeff(torch.nn.Module):
         def forward(self, g):
-            g.nodes['n2'].data['coefficients'] = g.nodes['n2'].data['log_coefficients'].exp()
-            g.nodes['n3'].data['coefficients'] = g.nodes['n3'].data['log_coefficients'].exp()
+            if 'log_coefficients' in g.nodes['n2'].data:
+                g.nodes['n2'].data['coefficients'] = g.nodes['n2'].data['log_coefficients'].exp()
+            if 'log_coefficients' in g.nodes['n3'].data:
+                g.nodes['n3'].data['coefficients'] = g.nodes['n3'].data['log_coefficients'].exp()
             return g
 
     class GetLoss(torch.nn.Module):
@@ -358,7 +395,6 @@ def run(kwargs):
                 g.nodes['n1'].data['q_ref'],
             )
         def force_loss(self, g):
-            
             du_dx_hat = torch.autograd.grad(
                 g.nodes['g'].data['u'].sum(),
                 g.nodes['n1'].data['xyz'],
@@ -376,15 +412,23 @@ def run(kwargs):
             # logging.debug(f"Loss_charge:      {self.charge_loss(g)}")
             # logging.debug(f"Loss_energy:      {self.energy_loss(g)}")
             # logging.debug(f"Loss_force:       {self.force_loss(g)}")
-            loss = self.charge_loss(g) + self.energy_loss(g) + self.force_loss(g) * force_weight
+            cl = self.charge_loss(g)
+            el = self.energy_loss(g)
+            fl = self.force_loss(g) * force_weight
+            
+            losses = {'charge_loss': cl, 'energy_loss': el, 'force_loss':fl}
             if g.number_of_nodes('n4_improper') > 0:
                 #logging.debug(f"Loss_n4_improper: {g.nodes['n4_improper'].data['k'].pow(2).mean()}")
-                loss = loss + g.nodes['n4_improper'].data['k'].pow(2).mean()
+                n4imp = g.nodes['n4_improper'].data['k'].pow(2).mean()
+                losses['n4_improper'] = n4imp
+
+
             if g.number_of_nodes('n4') > 0:
                 #logging.debug(f"Loss_n4:          {g.nodes['n4'].data['k'].pow(2).mean()}")
-                loss = loss + g.nodes['n4'].data['k'].pow(2).mean()
+                n4 = g.nodes['n4'].data['k'].pow(2).mean()
+                losses['n4'] = n4
             
-            return loss
+            return losses
 
     energy_graph = esp.mm.energy.EnergyInGraphMMFF(terms=["n2", "n3", "n4", "n4_improper", "n4_oop"])
     
@@ -401,22 +445,51 @@ def run(kwargs):
         GetLoss(),
     ).float().to(device)
 
-    # Check if checkpoint file exists
-    checkpoints = glob.glob("{}/*.th".format(output_prefix))
-    if checkpoints:
-        n = [ int(c.split('net')[1].split('.')[0]) for c in checkpoints ]
-        n.sort()
-        last_step = n[-1]
-        last_checkpoint = os.path.join(output_prefix, "net{}.th".format(last_step))
-        net.load_state_dict(torch.load(last_checkpoint))
-        step = last_step + 1
-        print('Found checkpoint file ({}). Restrating from step {}'.format(last_checkpoint, step))
+
+    wandb.login()
+    exp_name = None
+    if load:
+        
+        checkpoints = glob.glob("{}/*.th".format(output_prefix))
+        if checkpoints:
+            exp_name = os.path.split(output_prefix)[-1]
+            
+            n = [ int(c.split('net')[1].split('.')[0]) for c in checkpoints ]
+            n.sort()
+            last_step = n[-1]
+            last_checkpoint = os.path.join(output_prefix, "net{}.th".format(last_step))
+            net.load_state_dict(torch.load(last_checkpoint))
+            step = last_step + 1
+            print('Found checkpoint file ({}). Restrating from step {}'.format(last_checkpoint, step))
+        else:
+            raise Exception("Cannot find checkpoint")
+
+        run = wandb.init(
+        # Set the project where this run will be logged
+        project="espaloma",
+            # Track hyperparameters and run metadata
+        config=kwargs
+
+    )
     else:
+        run = wandb.init(
+            # Set the project where this run will be logged
+            project="espaloma",
+            # Track hyperparameters and run metadata
+            config=kwargs,
+        )
+            
+        output_prefix = os.path.join(output_prefix, run.name)
         step = 1
+
+
+    
 
     # Train
     ds_tr_loader = dgl.dataloading.GraphDataLoader(ds_tr_augment, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
+    
+
     with torch.autograd.set_detect_anomaly(True):
         for idx in range(step, step+epochs):
             for g in ds_tr_loader:
@@ -424,8 +497,13 @@ def run(kwargs):
                 optimizer.zero_grad()
                 g = g.to(device)
                 g.nodes["n1"].data["xyz"].requires_grad = True 
-                loss = net(g)
+                losses = net(g)
+                loss = sum(losses.values())
                 loss.backward()
+                losses['epoch'] = idx
+                losses['avg_n2_coefficients'] = g.nodes['n2'].data['k'].mean()
+                losses['avg_n3_coefficients'] = g.nodes['n3'].data['k'].mean()
+                wandb.log(losses)
                 optimizer.step()
             if idx % 10 == 0:
                 # Note: returned loss is a joint loss of different units.
@@ -448,8 +526,11 @@ def run(kwargs):
 @click.option("-d",   "--datasets",        help="name of the dataset", type=str)
 @click.option("-o",   "--output_prefix",   default="output", help="output prefix to save checkpoint network models", type=str)
 @click.option("-n",   "--n_max_confs",     default="50", help="number of conformations to reshape the graph", type=int)
+@click.option("-m",   "--mixture",     default="0", help="Use mixture", type=int)
 @click.option("-w",   "--force_weight",    default=1.0, type=float)
+@click.option("--load",    default="0", type=int)
 @click.option("-f",   "--field",    default='openff', type=str)
+
 def cli(**kwargs):
     logging.debug(kwargs)
     logging.debug(esp.__version__)

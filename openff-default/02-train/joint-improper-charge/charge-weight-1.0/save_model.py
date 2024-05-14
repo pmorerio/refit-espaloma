@@ -1,12 +1,15 @@
 #!/usr/bin/env python
-import os, sys, math
-import numpy as np
-import random
-import click
 import glob
-import torch
-import espaloma as esp
+import math
+import os
+import random
+import sys
+
+import click
 import dgl
+import espaloma as esp
+import numpy as np
+import torch
 
 
 def save_model(kwargs):

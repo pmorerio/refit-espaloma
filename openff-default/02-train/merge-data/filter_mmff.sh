@@ -14,7 +14,7 @@
 
 OPENMM_CPU_THREADS=1
 
-base_forcefield='openff-2.0.0'
+base_forcefield='mmff94'
 
 datasets=$(ls ${base_forcefield})
 
@@ -23,5 +23,5 @@ for dataset in $datasets
 do
     echo $dataset
     mkdir -p ${base_forcefield}_filtered/${dataset}
-    python ./script/filter.py --dataset ${dataset} --base_forcefield $base_forcefield
+    python ./script/filter_mmff.py --dataset ${dataset} --base_forcefield $base_forcefield
 done
